@@ -1,5 +1,5 @@
 slickplan.upload:
-  path: '/slickplan/upload'
+  path: '/admin/config/content/slickplan/upload'
   defaults:
     _title: 'Slickplan Importer'
     _form: '\Drupal\slickplan\Form\UploadForm'
