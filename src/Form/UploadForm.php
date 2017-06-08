@@ -6,7 +6,6 @@ use Drupal\file\Entity\File;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\slickplan\Controller\SlickplanController;
-use Symfony\Component\HttpFoundation\RedirectResponse;
 
 
 class UploadForm extends FormBase
@@ -19,6 +18,8 @@ class UploadForm extends FormBase
 
     public function buildForm(array $form, FormStateInterface $form_state)
     {
+       
+        
         $file_validator = array(
             'file_validate_extensions' => array(
                 'xml'
@@ -57,11 +58,13 @@ class UploadForm extends FormBase
         if (isset($data) && ! empty($data)) {
             
             try {
+                
                 $slickplan = new SlickplanController();
+                
                 $data = $slickplan->parseSlickplanXml($data);
                 Drupal::state()->set('slickplan_importer',$data);
                 
-                return new RedirectResponse(Drupal::url('slickplan.options'));
+                $form_state->setRedirect('slickplan.options');
                 
             } catch (Exception $ex) {
                 drupal_set_message($e->getMessage(), 'error');
