@@ -1,10 +1,14 @@
 <?php
 namespace Drupal\slickplan\Controller;
 
-use Drupal\Core\ControllerInterface;
-use Symfony\Component\DependencyInjection\ContainerInterface;
+use DOMDocument;
+use Drupal;
+use Drupal\system\Entity\Menu;
+use Drupal\node\Entity\Node;
+use Drupal\menu_link_content\Entity\MenuLinkContent;
 
-class SlickplanController implements ControllerInterface
+
+class SlickplanController
 {
 
     /**
@@ -172,9 +176,13 @@ class SlickplanController implements ControllerInterface
         
         $this->_files = array();
         
-        $node = new stdClass();
-        $node->type = $this->options['post_type'];
-        node_object_prepare($node);
+        // $node = new stdClass();
+        // $node->type = $this->options['post_type'];
+        // node_object_prepare($node);
+        
+        $node = Node::create([
+            'type' => $this->options['post_type']
+        ]);
         
         $post_title = $this->_getFormattedTitle($data);
         
@@ -229,26 +237,37 @@ class SlickplanController implements ControllerInterface
             }
         }
         
-        $node = node_submit($node);
+        $node->uid = Drupal::currentUser()->id();
+        $node->created = ! empty($node->date) ? strtotime($node->date) : REQUEST_TIME;
         
         try {
-            node_save($node);
+            $node->save();
+            $module_path = Drupal::service('path.alias_manager')->getPathByAlias('node/' . $node->id());
             
-            $menu = array(
-                'menu_name' => 'slickplan-importer',
-                'link_title' => $post_title,
-                'link_path' => drupal_get_normal_path('node/' . $node->nid),
-                'plid' => (int) $parent_id,
-                'module' => 'menu',
+//             $menu = array(
+//                 'menu_name' => 'slickplan-importer',
+//                 'link_title' => $post_title,
+//                 'link_path' => $module_path,
+//                 'plid' => (int) $parent_id,
+//                 'module' => 'menu',
+//                 'customized' => true,
+//                 'options' => array()
+//             );
+            $menu = MenuLinkContent::create([
+                'menu_name'=>'slickplan-importer',
+                'title'=>$post_title,
+                'link'=>['uri' => 'internal:/'.$module_path],
+                'parent'=>(int) $parent_id,
+                'module'=>'menu',
                 'customized' => true,
                 'options' => array()
-            );
-            $link = menu_link_save($menu);
+            ]);
             
+            $menu->save();
             $return = array(
                 'ID' => $node->nid,
                 'title' => $post_title,
-                'url' => drupal_get_normal_path('node/' . $node->nid),
+                'url' => $module_path,
                 'mlid' => $link,
                 'files' => $this->_files
             );
@@ -277,30 +296,36 @@ class SlickplanController implements ControllerInterface
     public function addMenu()
     {
         $menu = array(
-            'menu_name' => 'slickplan-importer',
-            'title' => 'Slickplan Importer',
+            'id' => 'slickplan-importer',
+            'label' => 'Slickplan Importer',
             'description' => 'Slickplan Importer - imported pages structure'
         );
-        $existing_menu = menu_load($menu['menu_name']);
-        if ($existing_menu) {
-            $links = menu_load_links($menu['menu_name']);
-            foreach ($links as $link) {
-                menu_link_delete($link['mlid']);
-            }
+        
+        $menu_array = Menu::loadMultiple(); 
+        
+        if (isset($menu_array[$menu['id']])) {
+            Drupal::service('plugin.manager.menu.link')->deleteLinksInMenu($menu['id']);
         } else {
-            menu_save($menu);
+            Menu::create($menu)->save();
         }
         
-        if (menu_load($menu['menu_name'])) {
-            $available_menus = variable_get('menu_options_' . $this->options['post_type'], array(
+        if (isset($menu_array[$menu['id']])) {
+            $available_menus = Drupal::state()->get('menu_options_' . $this->options['post_type'], array(
                 'main-menu' => 'main-menu'
             ));
             if (! isset($available_menus['slickplan-importer'])) {
                 $available_menus['slickplan-importer'] = 'slickplan-importer';
-                variable_set('menu_options_' . $this->options['post_type'], $available_menus);
+                Drupal::state()->set('menu_options_' . $this->options['post_type'], $available_menus);
             }
+            
+            $cache = Drupal::cache('menu');
+            $cache->deleteAll();
+            
             return $menu['menu_name'];
         }
+        $cache = Drupal::cache('menu');
+        $cache->deleteAll();
+        
         return false;
     }
 
@@ -339,11 +364,12 @@ class SlickplanController implements ControllerInterface
     /**
      * Check if there are any pages with unparsed internal links, if yes - replace links with real URLs
      */
+    // TODO
     public function checkForInternalLinks()
     {
         if (isset($this->options['internal_links']) and is_array($this->options['internal_links'])) {
             foreach ($this->options['internal_links'] as $page_id) {
-                $page = node_load($page_id);
+                $page = Node::load($page_id);
                 if (isset($page->body[$page->language][0]['value'])) {
                     $page_content = $this->_parseInternalLinks($page->body[$page->language][0]['value'], true);
                     if ($page_content) {
