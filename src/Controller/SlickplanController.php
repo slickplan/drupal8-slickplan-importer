@@ -172,13 +172,10 @@ class SlickplanController
      */
     public function importPage(array $data, $parent_id = 0)
     {
-        global $user;
+        
+        
         
         $this->_files = array();
-        
-        // $node = new stdClass();
-        // $node->type = $this->options['post_type'];
-        // node_object_prepare($node);
         
         $node = Node::create([
             'type' => $this->options['post_type']
@@ -187,7 +184,7 @@ class SlickplanController
         $post_title = $this->_getFormattedTitle($data);
         
         $node->title = $post_title;
-        $node->language = LANGUAGE_NONE;
+        $node->language = 'und';
         
         // Set url slug
         if (isset($data['contents']['url_slug']) and $data['contents']['url_slug']) {
@@ -200,7 +197,7 @@ class SlickplanController
         if (isset($data['contents']['assignee']['@value'], $this->options['users'][$data['contents']['assignee']['@value']])) {
             $node->uid = $this->options['users'][$data['contents']['assignee']['@value']];
         } else {
-            $node->uid = $user->uid;
+            $node->uid = Drupal::currentUser()->id();
         }
         
         // Set post status
@@ -263,7 +260,7 @@ class SlickplanController
                 'options' => array()
             ]);
             
-            $menu->save();
+            $link = $menu->save();
             $return = array(
                 'ID' => $node->nid,
                 'title' => $post_title,
@@ -297,6 +294,7 @@ class SlickplanController
     {
         $menu = array(
             'id' => 'slickplan-importer',
+            'menu_name'=> 'slickplan-importer',
             'label' => 'Slickplan Importer',
             'description' => 'Slickplan Importer - imported pages structure'
         );
