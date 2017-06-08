@@ -33,7 +33,7 @@ class SummaryForm extends FormBase
         
         if (isset($xml['summary']) and is_array($xml['summary'])) {
             $html = '';
-            $slickplan = new Slickplan_Importer();
+            $slickplan = new SlickplanController();
             foreach ($xml['summary'] as $page) {
                 $html .= $slickplan->getSummaryRow($page);
             }
