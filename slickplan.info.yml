@@ -10,4 +10,5 @@ depedencies:
   - core/jquery
 libraries:
   - 'external/fonts'
+  - 'main/js'
 hidden: false
