@@ -1,10 +1,12 @@
 <?php
+
 namespace Drupal\slickplan\Controller;
 
-use DOMDocument;
 use Drupal;
-use Drupal\system\Entity\Menu;
+use Exception;
+use DOMDocument;
 use Drupal\node\Entity\Node;
+use Drupal\system\Entity\Menu;
 use Drupal\menu_link_content\Entity\MenuLinkContent;
 
 class SlickplanController
@@ -111,11 +113,11 @@ class SlickplanController
      */
     public function addMedia($url, array $attrs = array())
     {
-        if (! $this->options['content_files']) {
+        if (!$this->options['content_files']) {
             return false;
         }
         $file = file_get_contents($url);
-        if (! isset($attrs['file_name']) or ! $attrs['file_name']) {
+        if (!isset($attrs['file_name']) or !$attrs['file_name']) {
             $url = parse_url($url);
             $attrs['file_name'] = basename($url['path']);
         }
@@ -147,9 +149,9 @@ class SlickplanController
     /**
      * Import pages into Drupal.
      *
-     * @param array $structure            
-     * @param array $pages            
-     * @param int $parent_id            
+     * @param array $structure
+     * @param array $pages
+     * @param int $parent_id
      */
     public function importPages(array $structure, array $pages, $parent_id = 0)
     {
@@ -166,137 +168,108 @@ class SlickplanController
     /**
      * Import single page into Drupal.
      *
-     * @param array $data            
-     * @param int $parent_id            
+     * @param array $data
+     * @param int $parent_id
+     * @return array
      */
     public function importPage(array $data, $parent_id = 0)
     {
         $this->_files = array();
-        
-        $node = Node::create([
-            'type' => $this->options['post_type']
-        ]);
-        
-        // var_dump($node->get('title')->getValue());
-        // exit;
-        
+
         $post_title = $this->_getFormattedTitle($data);
-        $node->set('title', $post_title);
-        
-        // Set url slug
-        if (isset($data['contents']['url_slug']) and $data['contents']['url_slug']) {
-            $node->set('path', array(
-                'alias' => $data['contents']['url_slug']
-            ));
-        }
-        
+
+        $node = Node::create([
+            'type' => $this->options['post_type'],
+            'title' => $post_title,
+        ]);
+
         // Set post author
         if (isset($data['contents']['assignee']['@value'], $this->options['users'][$data['contents']['assignee']['@value']])) {
-            $node->set('uid',$this->options['users'][$data['contents']['assignee']['@value']]);
+            $node->set('uid', $this->options['users'][$data['contents']['assignee']['@value']]);
         } else {
-            $node->set('uid',Drupal::currentUser()->id());
+            $node->set('uid', Drupal::currentUser()->id());
         }
-        
+
         // Set post status
         if (isset($data['contents']['status']) and $data['contents']['status'] === 'draft') {
-            $node->set('status',0);
+            $node->set('status', 0);
         }
-        
+
+        $article_value = null;
+
+        $this->_has_unparsed_internal_links = false;
+
         // Set post content
         if ($this->options['content'] === 'desc') {
-            if (isset($data['desc']) and ! empty($data['desc'])) {
-                
-                
-                $node->set('field_article_body_summary',array(
-                    'summary'=>$data['desc'],
-                    'value'=>$data['desc'],
-                    'format'=>'full_html'
+            if (isset($data['desc']) and !empty($data['desc'])) {
+                $this->_parseInternalLinks($data['desc']);
+                $node->set('body', array(
+                    'summary' => '',
+                    'value' => $data['desc'],
+                    'format' => 'full_html',
                 ));
-                exit;
             }
         } elseif ($this->options['content'] === 'contents') {
             if (isset($data['contents']['body']) and is_array($data['contents']['body']) and count($data['contents']['body'])) {
-                
-                $node->set('field_article_body_summary',array(
-                    'summary'=>$node->get('value'),
-                    'value'=>$this->_getFormattedContent($data['contents']['body']),
-                    'format'=>'full_html'
+                $article_value = $this->_getFormattedContent($data['contents']['body']);
+                $this->_parseInternalLinks($article_value);
+                $node->set('body', array(
+                    'summary' => '',
+                    'value' => $article_value,
+                    'format' => 'full_html',
                 ));
-                
-//                 $node->body[$node->language][0]['value'] = $this->_getFormattedContent($data['contents']['body']);
-//                 $node->body[$node->language][0]['summary'] = $node->body[$node->language][0]['value'];
-//                 $node->body[$node->language][0]['format'] = 'full_html';
-                
-                foreach ($data['contents']['body'] as $type => $element) {
-                    if ($type === 'wysiwyg' or $type === 'text') {
-                        $node->get('field_article_body_summary')->set('summary',$element['content']);
-                        break;
-                    }
-                }
             }
         }
-        
-        $this->_has_unparsed_internal_links = false;
-        
-        //TODO
-        //$article_value = $node->get('field_article_body_summary')->get('value');
-        var_dump($node->getFields());
-        exit;
-        if(isset($article_value) && !empty($article_value)) {
-            $updated_content = $this->_parseInternalLinks($article_value);
-            if(!empty($updated_content)) {
-                $node->get('field_article_body_summary')->set('value',$updated_content);
-                $node->get('field_article_body_summary')->set('summary',$updated_content);
-                
-            }
-        }
-        $node->set('uid',Drupal::currentUser()->id());
-        
-        $created = empty($node->date) ? strtotime($node->date) : REQUEST_TIME;
-        $node->set('created',$created);
-        
-//         $node->uid = Drupal::currentUser()->id();
-//         $node->created = ! empty($node->date) ? strtotime($node->date) : REQUEST_TIME;
-        
+
+        $node->set('uid', Drupal::currentUser()->id());
+
         try {
             $node->save();
-            $module_path = Drupal::service('path.alias_manager')->getPathByAlias('node/' . $node->id());
-            
+
+            $url = $node->url();
+
+            if (isset($data['contents']['url_slug']) and $data['contents']['url_slug']) {
+                $url = '/' . ltrim($data['contents']['url_slug'], '/');
+                Drupal::service('path.alias_storage')->save(
+                    $node->url(),
+                    $url,
+                    Drupal::languageManager()->getCurrentLanguage()->getId()
+                );
+            }
+
             $menu = MenuLinkContent::create([
                 'menu_name' => 'slickplan-importer',
                 'title' => $post_title,
                 'link' => [
-                    'uri' => 'internal:/' . $module_path
+                    'uri' => 'internal:' . $url
                 ],
                 'parent' => $parent_id,
                 'module' => 'menu',
                 'customized' => true,
-                'options' => array()
+                'options' => array(),
             ]);
-            
             $menu->save();
-            $mlid = $menu->getPluginId();
-            
+
             $return = array(
-                'ID' => $node->nid,
+                'ID' => $node->id(),
                 'title' => $post_title,
-                'url' => $module_path,
-                'mlid' => $mlid,
-                'files' => $this->_files
+                'url' => $url,
+                'mlid' => $menu->getPluginId(),
+                'files' => $this->_files,
             );
-            
+
             // Save page permalink
             if (isset($data['@attributes']['id']) and $data['@attributes']['id']) {
                 $this->options['imported_pages'][$data['@attributes']['id']] = $return['url'];
             }
-            
+
             if ($this->_has_unparsed_internal_links) {
                 $this->options['internal_links'][] = $return['ID'];
             }
         } catch (Exception $e) {
             $return = array(
                 'title' => $post_title,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             );
         }
         $this->summary[] = $return;
@@ -314,40 +287,40 @@ class SlickplanController
             'label' => 'Slickplan Importer',
             'description' => 'Slickplan Importer - imported pages structure'
         );
-        
+
         $menu_array = Menu::loadMultiple();
-        
+
         if (isset($menu_array[$menu['id']])) {
             Drupal::service('plugin.manager.menu.link')->deleteLinksInMenu($menu['id']);
         } else {
             Menu::create($menu)->save();
         }
-        
+
         if (isset($menu_array[$menu['id']])) {
             $available_menus = Drupal::state()->get('menu_options_' . $this->options['post_type'], array(
-                'main-menu' => 'main-menu'
+                'main-menu' => 'main-menu',
             ));
-            if (! isset($available_menus['slickplan-importer'])) {
+            if (!isset($available_menus['slickplan-importer'])) {
                 $available_menus['slickplan-importer'] = 'slickplan-importer';
                 Drupal::state()->set('menu_options_' . $this->options['post_type'], $available_menus);
+                Drupal::state()->resetCache();
             }
-            
-            $cache = Drupal::cache('menu');
-            $cache->deleteAll();
-            
+
             return $menu['menu_name'];
+        } else {
+            $menu = false;
         }
+
         $cache = Drupal::cache('menu');
         $cache->deleteAll();
-        
-        return false;
+
+        return $menu;
     }
 
     /**
      * Get HTML of a summary row
      *
-     * @param array $page            
-     * @param null $id            
+     * @param array $page
      * @return string
      */
     public function getSummaryRow(array $page)
@@ -356,7 +329,7 @@ class SlickplanController
         if (isset($page['error']) and $page['error']) {
             $html .= '<span style="color: #e00"><i class="fa fa-fw fa-times"></i> ' . $page['error'] . '</span>';
         } elseif (isset($page['url'])) {
-            $html .= '<i class="fa fa-fw fa-check" style="color: #0d0"></i> ' . '<a href="' . url($page['url']) . '">' . url($page['url']) . '</a>';
+            $html .= '<i class="fa fa-fw fa-check" style="color: #0d0"></i> ' . '<a href="' . htmlspecialchars($page['url']) . '">' . $page['url'] . '</a>';
         } elseif (isset($page['loading']) and $page['loading']) {
             $html .= '<i class="fa fa-fw fa-refresh fa-spin"></i>';
         }
@@ -369,7 +342,8 @@ class SlickplanController
                     $files[] = '<span style="color: #e00"><i class="fa fa-fw fa-times"></i> ' . $file['filename'] . ' - ' . $file['error'] . '</span>';
                 }
             }
-            $html .= '<div style="border-left: 5px solid rgba(0, 0, 0, 0.05); margin-left: 5px; ' . 'padding: 5px 0 5px 11px;">Files:<br />' . implode('<br />', $files) . '</div>';
+            $html .= '<div style="border-left: 5px solid rgba(0, 0, 0, 0.05); margin-left: 5px; ' . 'padding: 5px 0 5px 11px;">Files:<br />' . implode('<br />',
+                    $files) . '</div>';
         }
         $html .= '<div>';
         return $html;
@@ -378,17 +352,20 @@ class SlickplanController
     /**
      * Check if there are any pages with unparsed internal links, if yes - replace links with real URLs
      */
-    // TODO
     public function checkForInternalLinks()
     {
         if (isset($this->options['internal_links']) and is_array($this->options['internal_links'])) {
             foreach ($this->options['internal_links'] as $page_id) {
                 $page = Node::load($page_id);
-                if (isset($page->body[$page->language][0]['value'])) {
-                    $page_content = $this->_parseInternalLinks($page->body[$page->language][0]['value'], true);
+                $body = $page->get('body')->getValue();
+                if (isset($body[0]['value'])) {
+                    $page_content = $this->_parseInternalLinks($body[0]['value'], true);
                     if ($page_content) {
-                        $page->body[$page->language][0]['value'] = $page->body[$page->language][0]['summary'] = $page_content;
-                        node_save($page);
+                        $page->set('body', array(
+                            'summary' => '',
+                            'value' => $page_content,
+                            'format' => 'full_html',
+                        ))->save();
                     }
                 }
             }
@@ -398,10 +375,8 @@ class SlickplanController
     /**
      * Replace internal links with correct pages URLs.
      *
-     * @param
-     *            $content
-     * @param
-     *            $force_parse
+     * @param $content
+     * @param $force_parse
      * @return bool
      */
     private function _parseInternalLinks($content, $force_parse = false)
@@ -429,7 +404,8 @@ class SlickplanController
     /**
      * Get formatted HTML content.
      *
-     * @param array $content            
+     * @param array $contents
+     * @return string
      */
     protected function _getFormattedContent(array $contents)
     {
@@ -441,7 +417,7 @@ class SlickplanController
                 );
             }
             foreach ($content as $element) {
-                if (! isset($element['content'])) {
+                if (!isset($element['content'])) {
                     continue;
                 }
                 $html = '';
@@ -491,7 +467,7 @@ class SlickplanController
                         break;
                     case 'table':
                         if (isset($element['content']['data'])) {
-                            if (! is_array($element['content']['data'])) {
+                            if (!is_array($element['content']['data'])) {
                                 $element['content']['data'] = @json_decode($element['content']['data'], true);
                             }
                             if (is_array($element['content']['data'])) {
@@ -537,8 +513,7 @@ class SlickplanController
     /**
      * Reformat title.
      *
-     * @param
-     *            $data
+     * @param $data
      * @return string
      */
     protected function _getFormattedTitle(array $data)
@@ -564,7 +539,7 @@ class SlickplanController
     /**
      * Parse single node XML element.
      *
-     * @param DOMElement $node            
+     * @param \DOMElement $node
      * @return array|string
      */
     protected function _parseSlickplanXmlNode($node)
@@ -574,11 +549,11 @@ class SlickplanController
                 return trim($node->textContent);
             } elseif ($node->nodeType === XML_ELEMENT_NODE) {
                 $output = array();
-                for ($i = 0, $j = $node->childNodes->length; $i < $j; ++ $i) {
+                for ($i = 0, $j = $node->childNodes->length; $i < $j; ++$i) {
                     $child_node = $node->childNodes->item($i);
                     $value = $this->_parseSlickplanXmlNode($child_node);
                     if (isset($child_node->tagName)) {
-                        if (! isset($output[$child_node->tagName])) {
+                        if (!isset($output[$child_node->tagName])) {
                             $output[$child_node->tagName] = array();
                         }
                         $output[$child_node->tagName][] = $value;
@@ -586,7 +561,7 @@ class SlickplanController
                         $output = $value;
                     }
                 }
-                
+
                 if (is_array($output)) {
                     foreach ($output as $tag => $value) {
                         if (is_array($value) and count($value) === 1) {
@@ -597,13 +572,13 @@ class SlickplanController
                         $output = '';
                     }
                 }
-                
+
                 if ($node->attributes->length) {
                     $attributes = array();
                     foreach ($node->attributes as $attr_name => $attr_node) {
-                        $attributes[$attr_name] = (string) $attr_node->value;
+                        $attributes[$attr_name] = (string)$attr_node->value;
                     }
-                    if (! is_array($output)) {
+                    if (!is_array($output)) {
                         $output = array(
                             '@value' => $output
                         );
@@ -619,13 +594,14 @@ class SlickplanController
     /**
      * Check if the array is from a correct Slickplan XML file.
      *
-     * @param array $array            
-     * @param bool $parsed            
+     * @param array $array
+     * @param bool $parsed
      * @return bool
      */
     protected function _isCorrectSlickplanXmlFile($array, $parsed = false)
     {
-        $first_test = ($array and is_array($array) and isset($array['title'], $array['version'], $array['link']) and is_string($array['link']) and strstr($array['link'], 'slickplan.'));
+        $first_test = ($array and is_array($array) and isset($array['title'], $array['version'], $array['link']) and is_string($array['link']) and strstr($array['link'],
+                'slickplan.'));
         if ($first_test) {
             if ($parsed) {
                 if (isset($array['sitemap']) and is_array($array['sitemap'])) {
@@ -641,13 +617,13 @@ class SlickplanController
     /**
      * Get multidimensional array, put all child pages as nested array of the parent page.
      *
-     * @param array $array            
+     * @param array $array
      * @return array
      */
     protected function _getMultidimensionalArrayHelper(array $array)
     {
         $cells = array();
-        $main_section_key = - 1;
+        $main_section_key = -1;
         $relation_section_cell = array();
         foreach ($array['section'] as $section_key => $section) {
             if (isset($section['@attributes']['id'], $section['cells']['cell']) and is_array($section['cells']['cell'])) {
@@ -670,7 +646,7 @@ class SlickplanController
             if ($section_id !== 'svgmainsection') {
                 $remove = true;
                 foreach ($section['cells']['cell'] as $cell_key => $cell) {
-                    $cell['level'] = (string) $cell['level'];
+                    $cell['level'] = (string)$cell['level'];
                     if ($cell['level'] === 'home') {
                         unset($array['section'][$section_key]['cells']['cell'][$cell_key]);
                     } elseif ($cell['level'] === '1' and isset($relation_section_cell[$section_id])) {
@@ -707,7 +683,7 @@ class SlickplanController
             foreach ($array['section'][$main_section_key]['cells']['cell'] as $cell) {
                 if (isset($cell['@attributes']['id']) and ($cell['level'] === 'home' or $cell['level'] === 'util' or $cell['level'] === 'foot' or $cell['level'] === '1' or $cell['level'] === 1)) {
                     $level = $cell['level'];
-                    if (! isset($multi_array[$level]) or ! is_array($multi_array[$level])) {
+                    if (!isset($multi_array[$level]) or !is_array($multi_array[$level])) {
                         $multi_array[$level] = array();
                     }
                     $childs = $this->_getMultidimensionalArray($cells, $cell['@attributes']['id']);
@@ -729,11 +705,8 @@ class SlickplanController
     /**
      * Put all child pages as nested array of the parent page.
      *
-     * @param array $array            
-     * @param
-     *            $parent
-     * @param
-     *            $summary
+     * @param array $array
+     * @param $parent
      * @return array
      */
     protected function _getMultidimensionalArray(array $array, $parent)
@@ -758,14 +731,14 @@ class SlickplanController
     /**
      * Sort cells.
      *
-     * @param array $a            
-     * @param array $b            
+     * @param array $a
+     * @param array $b
      * @return int
      */
     protected function _sortPages(array &$a, array &$b)
     {
         if (isset($a['order'], $b['order'])) {
-            return ($a['order'] < $b['order']) ? - 1 : 1;
+            return ($a['order'] < $b['order']) ? -1 : 1;
         }
         return 0;
     }
