@@ -7,7 +7,6 @@ use Drupal\system\Entity\Menu;
 use Drupal\node\Entity\Node;
 use Drupal\menu_link_content\Entity\MenuLinkContent;
 
-
 class SlickplanController
 {
 
@@ -172,54 +171,65 @@ class SlickplanController
      */
     public function importPage(array $data, $parent_id = 0)
     {
-        
-        
-        
         $this->_files = array();
         
         $node = Node::create([
             'type' => $this->options['post_type']
         ]);
         
-        $post_title = $this->_getFormattedTitle($data);
+        // var_dump($node->get('title')->getValue());
+        // exit;
         
-        $node->title = $post_title;
-        $node->language = 'und';
+        $post_title = $this->_getFormattedTitle($data);
+        $node->set('title', $post_title);
         
         // Set url slug
         if (isset($data['contents']['url_slug']) and $data['contents']['url_slug']) {
-            $node->path = array(
+            $node->set('path', array(
                 'alias' => $data['contents']['url_slug']
-            );
+            ));
         }
         
         // Set post author
         if (isset($data['contents']['assignee']['@value'], $this->options['users'][$data['contents']['assignee']['@value']])) {
-            $node->uid = $this->options['users'][$data['contents']['assignee']['@value']];
+            $node->set('uid',$this->options['users'][$data['contents']['assignee']['@value']]);
         } else {
-            $node->uid = Drupal::currentUser()->id();
+            $node->set('uid',Drupal::currentUser()->id());
         }
         
         // Set post status
         if (isset($data['contents']['status']) and $data['contents']['status'] === 'draft') {
-            $node->status = 0;
+            $node->set('status',0);
         }
         
         // Set post content
         if ($this->options['content'] === 'desc') {
             if (isset($data['desc']) and ! empty($data['desc'])) {
-                $node->body[$node->language][0]['value'] = $data['desc'];
-                $node->body[$node->language][0]['summary'] = $data['desc'];
-                $node->body[$node->language][0]['format'] = 'full_html';
+                
+                
+                $node->set('field_article_body_summary',array(
+                    'summary'=>$data['desc'],
+                    'value'=>$data['desc'],
+                    'format'=>'full_html'
+                ));
+                exit;
             }
         } elseif ($this->options['content'] === 'contents') {
             if (isset($data['contents']['body']) and is_array($data['contents']['body']) and count($data['contents']['body'])) {
-                $node->body[$node->language][0]['value'] = $this->_getFormattedContent($data['contents']['body']);
-                $node->body[$node->language][0]['summary'] = $node->body[$node->language][0]['value'];
-                $node->body[$node->language][0]['format'] = 'full_html';
+                
+                $node->set('field_article_body_summary',array(
+                    'summary'=>$node->get('value'),
+                    'value'=>$this->_getFormattedContent($data['contents']['body']),
+                    'format'=>'full_html'
+                ));
+                
+//                 $node->body[$node->language][0]['value'] = $this->_getFormattedContent($data['contents']['body']);
+//                 $node->body[$node->language][0]['summary'] = $node->body[$node->language][0]['value'];
+//                 $node->body[$node->language][0]['format'] = 'full_html';
+                
                 foreach ($data['contents']['body'] as $type => $element) {
                     if ($type === 'wysiwyg' or $type === 'text') {
-                        $node->body[$node->language][0]['summary'] = $element['content'];
+                        $node->get('field_article_body_summary')->set('summary',$element['content']);
                         break;
                     }
                 }
@@ -227,45 +237,51 @@ class SlickplanController
         }
         
         $this->_has_unparsed_internal_links = false;
-        if (isset($node->body[$node->language][0]['value']) and $node->body[$node->language][0]['value']) {
-            $updated_content = $this->_parseInternalLinks($node->body[$node->language][0]['value']);
-            if ($updated_content) {
-                $node->body[$node->language][0]['value'] = $node->body[$node->language][0]['summary'] = $updated_content;
+        
+        //TODO
+        //$article_value = $node->get('field_article_body_summary')->get('value');
+        var_dump($node->getFields());
+        exit;
+        if(isset($article_value) && !empty($article_value)) {
+            $updated_content = $this->_parseInternalLinks($article_value);
+            if(!empty($updated_content)) {
+                $node->get('field_article_body_summary')->set('value',$updated_content);
+                $node->get('field_article_body_summary')->set('summary',$updated_content);
+                
             }
         }
+        $node->set('uid',Drupal::currentUser()->id());
         
-        $node->uid = Drupal::currentUser()->id();
-        $node->created = ! empty($node->date) ? strtotime($node->date) : REQUEST_TIME;
+        $created = empty($node->date) ? strtotime($node->date) : REQUEST_TIME;
+        $node->set('created',$created);
+        
+//         $node->uid = Drupal::currentUser()->id();
+//         $node->created = ! empty($node->date) ? strtotime($node->date) : REQUEST_TIME;
         
         try {
             $node->save();
             $module_path = Drupal::service('path.alias_manager')->getPathByAlias('node/' . $node->id());
             
-//             $menu = array(
-//                 'menu_name' => 'slickplan-importer',
-//                 'link_title' => $post_title,
-//                 'link_path' => $module_path,
-//                 'plid' => (int) $parent_id,
-//                 'module' => 'menu',
-//                 'customized' => true,
-//                 'options' => array()
-//             );
             $menu = MenuLinkContent::create([
-                'menu_name'=>'slickplan-importer',
-                'title'=>$post_title,
-                'link'=>['uri' => 'internal:/'.$module_path],
-                'parent'=>(int) $parent_id,
-                'module'=>'menu',
+                'menu_name' => 'slickplan-importer',
+                'title' => $post_title,
+                'link' => [
+                    'uri' => 'internal:/' . $module_path
+                ],
+                'parent' => $parent_id,
+                'module' => 'menu',
                 'customized' => true,
                 'options' => array()
             ]);
             
-            $link = $menu->save();
+            $menu->save();
+            $mlid = $menu->getPluginId();
+            
             $return = array(
                 'ID' => $node->nid,
                 'title' => $post_title,
                 'url' => $module_path,
-                'mlid' => $link,
+                'mlid' => $mlid,
                 'files' => $this->_files
             );
             
@@ -294,12 +310,12 @@ class SlickplanController
     {
         $menu = array(
             'id' => 'slickplan-importer',
-            'menu_name'=> 'slickplan-importer',
+            'menu_name' => 'slickplan-importer',
             'label' => 'Slickplan Importer',
             'description' => 'Slickplan Importer - imported pages structure'
         );
         
-        $menu_array = Menu::loadMultiple(); 
+        $menu_array = Menu::loadMultiple();
         
         if (isset($menu_array[$menu['id']])) {
             Drupal::service('plugin.manager.menu.link')->deleteLinksInMenu($menu['id']);
