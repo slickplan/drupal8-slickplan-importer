@@ -7,8 +7,6 @@ core: 8.x
 depedencies:
   - image
   - file
-  - core/jquery
 libraries:
-  - 'external/fonts'
-  - 'main/js'
+  - slickplan
 hidden: false
