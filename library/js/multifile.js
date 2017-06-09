@@ -4,22 +4,22 @@ Drupal.behaviors.myModule = {
 
         var $ = jQuery;
         var $form = $('#ajax-importer-forms');
-        
+
         var $slickplanJson = $form.find('input[name="slickplan_json"]');
         var $slickplanHtml = $form.find('input[name="slickplan_html"]')
-        
+
 
         if(!$slickplanJson.length || !$slickplanHtml.length) {
         	return;
         }
-        
+
         var slickplanJson = $.parseJSON($slickplanJson.val());
         var slickplanHtml = $slickplanHtml.val();
-        
+
 
         var $summary = $form.find('.slickplan-summary');
         var $progress = $form.find('#progress');
-        
+
         var _pages = [];
         var _importIndex = 0;
 
@@ -59,7 +59,7 @@ Drupal.behaviors.myModule = {
                     .end()
                 .find('.message')
                     .text(page.title + '...');
-            $.post(drupalSettings.path.baseUrl + 'admin/config/content/slickplan/ajax_importer/', {
+            $.post(drupalSettings.path.baseUrl + 'admin/config/content/slickplan/ajax_post?ajax_form=1&_wrapper_format=drupal_ajax', {
                 slickplan: {
                     page: page.id,
                     parent: page.parent ? page.parent : '',

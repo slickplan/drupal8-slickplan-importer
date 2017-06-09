@@ -19,6 +19,13 @@ slickplan.ajax_importer:
     _form: '\Drupal\slickplan\Form\AjaxImporterForm'
   requirements:
     _permission: 'access content'
+slickplan.ajax_post:
+  path: '/admin/config/content/slickplan/ajax_post'
+  defaults:
+    _title: 'Slickplan Importer'
+    _controller: '\Drupal\slickplan\Form\AjaxImporterForm::ajaxRequest'
+  requirements:
+    _permission: 'access content'
 slickplan.summary:
   path: '/admin/config/content/slickplan/summary'
   defaults:
