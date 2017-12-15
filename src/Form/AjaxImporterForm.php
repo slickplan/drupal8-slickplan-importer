@@ -3,27 +3,31 @@ namespace Drupal\slickplan\Form;
 
 use Drupal;
 use Drupal\file\Entity\File;
-use Drupal\Core\Form\FormBase;
 use Drupal\Core\Ajax\AppendCommand;
 use Drupal\Core\Form\FormStateInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Drupal\slickplan\Controller\SlickplanController;
-use Drupal\slickplan\Controller\SlickplanToolController;
 
 class AjaxImporterForm extends FormBase
 {
-
+    /**
+     * @return string
+     */
     public function getFormId()
     {
         return 'ajax_importer_forms';
     }
 
+    /**
+     * @param array $form
+     * @param FormStateInterface $form_state
+     * @return array
+     */
     public function buildForm(array $form, FormStateInterface $form_state)
     {
         $xml = Drupal::state()->get('slickplan_importer');
 
-        $slickplanToolController = new SlickplanToolController();
-        $slickplanToolController->checkRequiredData($xml, 'ajax_importer');
+        $this->_checkRequiredData($xml, 'ajax_importer');
 
         $form['page_header'] = array(
             '#markup' => '<h2>Importing Pages&hellip;</h2>',
@@ -52,39 +56,29 @@ class AjaxImporterForm extends FormBase
         );
 
         $form['message'] = array(
-            '#markup' => '<p style="display: none" class="slickplan-show-summary">Pages have been imported. Thank you for using ' . '<a href="http://slickplan.com/" target="_blank">Slickplan</a> Importer.</p>'
+            '#markup' => '<p style="display: none" class="slickplan-show-summary">Pages have been imported. Thank you for using '
+                . '<a href="http://slickplan.com/" target="_blank">Slickplan</a> Importer.</p>'
         );
 
         $form['progress'] = array(
             '#type' => 'inline_template',
-            '#template' => '
-                <div class="progress">
-                <div class="progress-bar progress-bar-success" role="progressbar" aria-valuenow="{{ complete }}"
-                aria-valuemin="0" aria-valuemax="100" style="width:{{ complete }}%">
-                {{ complete }}% Complete (success)
-                </div>
-                </div>',
+            '#template' => '<div class="progress" id="slickplan-progress" data-drupal-progress>'
+                . '<div class="progress__track"><div class="progress__bar" style="width: {{ percent }}%"></div></div>'
+                . '<div class="progress__percentage">{{ percent }}%</div><div class="progress__description">{{ message }}</div></div>',
             '#context' => array(
+                'percent' => '0',
                 'complete' => '0'
             ),
             '#attached' => array(
-                'library' => 'slickplan/multifile'
+                'library' => 'slickplan/ajaximporter'
             ),
         );
-
-        // $form['progress'] = array(
-        // '#markup' => theme_progress_bar(array(
-        // 'percent' => 0,
-        // 'message' => '',
-        // )),
-        // );
 
         $form['summary'] = array(
             '#markup' => '<p><hr /></p><div class="slickplan-summary"></div><p><hr /></p>',
             '#attached' => [
                 'library' => 'slickplan/awesome'
             ]
-
         );
 
         $form['submit'] = array(
@@ -100,6 +94,9 @@ class AjaxImporterForm extends FormBase
         return $form;
     }
 
+    /**
+     * @return JsonResponse
+     */
     public function ajaxRequest()
     {
         set_time_limit(180);
@@ -134,10 +131,6 @@ class AjaxImporterForm extends FormBase
             }
         }
         return new JsonResponse($result);
-    }
-
-    public function submitForm(array &$form, FormStateInterface $form_state)
-    {
     }
 }
 

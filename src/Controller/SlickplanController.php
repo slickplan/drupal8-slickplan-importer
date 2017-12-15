@@ -8,10 +8,10 @@ use Drupal\file\Entity\File;
 use Drupal\node\Entity\Node;
 use Drupal\system\Entity\Menu;
 use Drupal\menu_link_content\Entity\MenuLinkContent;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 
 class SlickplanController
 {
-
     /**
      * Import options
      *
@@ -52,8 +52,7 @@ class SlickplanController
      * Parse Slickplan's XML file.
      * Converts an XML DOMDocument to an array.
      *
-     * @param
-     *            $input_xml
+     * @param $input_xml
      * @return array
      * @throws Exception
      */
@@ -82,7 +81,11 @@ class SlickplanController
                     foreach ($array['section'] as $section_key => $section) {
                         if (isset($section['cells']['cell']) and is_array($section['cells']['cell'])) {
                             foreach ($section['cells']['cell'] as $cell_key => $cell) {
-                                if (isset($section['options']['id'], $cell['level']) and $cell['level'] === 'home' and $section['options']['id'] !== 'svgmainsection') {
+                                if (
+                                    isset($section['options']['id'], $cell['level'])
+                                    and $cell['level'] === 'home'
+                                    and $section['options']['id'] !== 'svgmainsection'
+                                ) {
                                     unset($array['section'][$section_key]['cells']['cell'][$cell_key]);
                                 }
                                 if (isset($cell['contents']['assignee']['@value'], $cell['contents']['assignee']['@attributes'])) {
@@ -105,46 +108,34 @@ class SlickplanController
     /**
      * Add a file to Media Library from URL
      *
-     * @param
-     *            $url
-     * @param array $attrs
-     *            Assoc array of attributes [title, alt, description, file_name]
+     * @param $url
+     * @param array $attrs Assoc array of attributes [title, alt, description, file_name]
      * @return bool|string
      */
     public function addMedia($url, array $attrs = array())
     {
-        if (! $this->options['content_files']) {
+        if (!$this->options['content_files']) {
             return false;
         }
-        $file = file_get_contents($url);
-        if (! isset($attrs['file_name']) or ! $attrs['file_name']) {
-            $url = parse_url($url);
-            $attrs['file_name'] = basename($url['path']);
+
+        if (!isset($attrs['file_name']) or !$attrs['file_name']) {
+            $fileUrl = parse_url($url);
+            $attrs['file_name'] = basename($fileUrl['path']);
         }
-        
-        $localFile = File::create(array(
-            'uid' => 1,
-            'filename' => $result['filename'],
-            'uri' => 'public://slickplan/' . $result['filename'],
-            'status' => 1
-        ));
-        $localFile->save();
-        
+
         $result = array(
             'filename' => $attrs['file_name']
         );
+
         try {
-            if ($file) {
-                
-                $dir = dirname($localFile->getFileUri());
-                if (! file_exists($dir)) {
-                    mkdir($dir, 0770, TRUE);
-                }
-                file_put_contents($localFile->getFileUri(), $file);
-                if ($localFile->getFileUri() and $localFile->getFileUri() != null) {
-                    
+            $response = Drupal::httpClient()->get($url);
+            $fileData = (string) $response->getBody();
+            if ($fileData) {
+                $directory = 'public://slickplan/';
+                file_prepare_directory($directory, FILE_CREATE_DIRECTORY);
+                $localFile = file_save_data($fileData, $directory . $result['filename']);
+                if ($localFile and $localFile->getFileUri() and $localFile->getFileUri() != null) {
                     $url = file_create_url($localFile->getFileUri());
-                    
                     if ($url) {
                         $result['url'] = $url;
                         $this->_files[] = $result;
@@ -165,9 +156,9 @@ class SlickplanController
     /**
      * Import pages into Drupal.
      *
-     * @param array $structure            
-     * @param array $pages            
-     * @param int $parent_id            
+     * @param array $structure
+     * @param array $pages
+     * @param int $parent_id
      */
     public function importPages(array $structure, array $pages, $parent_id = 0)
     {
@@ -184,40 +175,40 @@ class SlickplanController
     /**
      * Import single page into Drupal.
      *
-     * @param array $data            
-     * @param int $parent_id            
+     * @param array $data
+     * @param int $parent_id
      * @return array
      */
     public function importPage(array $data, $parent_id = 0)
     {
         $this->_files = array();
-        
+
         $post_title = $this->_getFormattedTitle($data);
-        
+
         $node = Node::create([
             'type' => $this->options['post_type'],
             'title' => $post_title
         ]);
-        
+
         // Set post author
         if (isset($data['contents']['assignee']['@value'], $this->options['users'][$data['contents']['assignee']['@value']])) {
             $node->set('uid', $this->options['users'][$data['contents']['assignee']['@value']]);
         } else {
             $node->set('uid', Drupal::currentUser()->id());
         }
-        
+
         // Set post status
         if (isset($data['contents']['status']) and $data['contents']['status'] === 'draft') {
             $node->set('status', 0);
         }
-        
+
         $article_value = null;
-        
+
         $this->_has_unparsed_internal_links = false;
-        
+
         // Set post content
         if ($this->options['content'] === 'desc') {
-            if (isset($data['desc']) and ! empty($data['desc'])) {
+            if (isset($data['desc']) and !empty($data['desc'])) {
                 $this->_parseInternalLinks($data['desc']);
                 $node->set('body', array(
                     'summary' => '',
@@ -236,20 +227,20 @@ class SlickplanController
                 ));
             }
         }
-        
+
         $node->set('uid', Drupal::currentUser()->id());
-        
+
         try {
             $node->save();
-            
+
             $url = $node->url();
-            
+
             if (isset($data['contents']['url_slug']) and $data['contents']['url_slug']) {
                 $url = '/' . ltrim($data['contents']['url_slug'], '/');
                 Drupal::service('path.alias_storage')->save($node->url(), $url, Drupal::languageManager()->getCurrentLanguage()
                     ->getId());
             }
-            
+
             $menu = MenuLinkContent::create([
                 'menu_name' => 'slickplan-importer',
                 'title' => $post_title,
@@ -262,7 +253,7 @@ class SlickplanController
                 'options' => array()
             ]);
             $menu->save();
-            
+
             $return = array(
                 'ID' => $node->id(),
                 'title' => $post_title,
@@ -270,12 +261,12 @@ class SlickplanController
                 'mlid' => $menu->getPluginId(),
                 'files' => $this->_files
             );
-            
+
             // Save page permalink
             if (isset($data['@attributes']['id']) and $data['@attributes']['id']) {
                 $this->options['imported_pages'][$data['@attributes']['id']] = $return['url'];
             }
-            
+
             if ($this->_has_unparsed_internal_links) {
                 $this->options['internal_links'][] = $return['ID'];
             }
@@ -300,40 +291,40 @@ class SlickplanController
             'label' => 'Slickplan Importer',
             'description' => 'Slickplan Importer - imported pages structure'
         );
-        
+
         $menu_array = Menu::loadMultiple();
-        
+
         if (isset($menu_array[$menu['id']])) {
             Drupal::service('plugin.manager.menu.link')->deleteLinksInMenu($menu['id']);
         } else {
             Menu::create($menu)->save();
         }
-        
+
         if (isset($menu_array[$menu['id']])) {
             $available_menus = Drupal::state()->get('menu_options_' . $this->options['post_type'], array(
                 'main-menu' => 'main-menu'
             ));
-            if (! isset($available_menus['slickplan-importer'])) {
+            if (!isset($available_menus['slickplan-importer'])) {
                 $available_menus['slickplan-importer'] = 'slickplan-importer';
                 Drupal::state()->set('menu_options_' . $this->options['post_type'], $available_menus);
                 Drupal::state()->resetCache();
             }
-            
+
             return $menu['menu_name'];
         } else {
             $menu = false;
         }
-        
+
         $cache = Drupal::cache('menu');
         $cache->deleteAll();
-        
+
         return $menu;
     }
 
     /**
      * Get HTML of a summary row
      *
-     * @param array $page            
+     * @param array $page
      * @return string
      */
     public function getSummaryRow(array $page)
@@ -342,7 +333,8 @@ class SlickplanController
         if (isset($page['error']) and $page['error']) {
             $html .= '<span style="color: #e00"><i class="fa fa-fw fa-times"></i> ' . $page['error'] . '</span>';
         } elseif (isset($page['url'])) {
-            $html .= '<i class="fa fa-fw fa-check" style="color: #0d0"></i> ' . '<a href="' . htmlspecialchars($page['url']) . '">' . $page['url'] . '</a>';
+            $html .= '<i class="fa fa-fw fa-check" style="color: #0d0"></i> '
+                . '<a href="' . htmlspecialchars($page['url']) . '">' . $page['url'] . '</a>';
         } elseif (isset($page['loading']) and $page['loading']) {
             $html .= '<i class="fa fa-fw fa-refresh fa-spin"></i>';
         }
@@ -350,12 +342,15 @@ class SlickplanController
             $files = array();
             foreach ($page['files'] as $file) {
                 if (isset($file['url']) and $file['url']) {
-                    $files[] = '<i class="fa fa-fw fa-check" style="color: #0d0"></i> <a href="' . $file['url'] . '" target="_blank">' . $file['filename'] . '</a>';
+                    $files[] = '<i class="fa fa-fw fa-check" style="color: #0d0"></i> <a href="' . $file['url'] . '" target="_blank">'
+                        . $file['filename'] . '</a>';
                 } elseif (isset($file['error']) and $file['error']) {
-                    $files[] = '<span style="color: #e00"><i class="fa fa-fw fa-times"></i> ' . $file['filename'] . ' - ' . $file['error'] . '</span>';
+                    $files[] = '<span style="color: #e00"><i class="fa fa-fw fa-times"></i> '
+                        . $file['filename'] . ' - ' . $file['error'] . '</span>';
                 }
             }
-            $html .= '<div style="border-left: 5px solid rgba(0, 0, 0, 0.05); margin-left: 5px; ' . 'padding: 5px 0 5px 11px;">Files:<br />' . implode('<br />', $files) . '</div>';
+            $html .= '<div style="border-left: 5px solid rgba(0, 0, 0, 0.05); margin-left: 5px; '
+                . 'padding: 5px 0 5px 11px;">Files:<br />' . implode('<br />', $files) . '</div>';
         }
         $html .= '<div>';
         return $html;
@@ -387,10 +382,8 @@ class SlickplanController
     /**
      * Replace internal links with correct pages URLs.
      *
-     * @param
-     *            $content
-     * @param
-     *            $force_parse
+     * @param $content
+     * @param $force_parse
      * @return bool
      */
     private function _parseInternalLinks($content, $force_parse = false)
@@ -418,7 +411,7 @@ class SlickplanController
     /**
      * Get formatted HTML content.
      *
-     * @param array $contents            
+     * @param array $contents
      * @return string
      */
     protected function _getFormattedContent(array $contents)
@@ -431,7 +424,7 @@ class SlickplanController
                 );
             }
             foreach ($content as $element) {
-                if (! isset($element['content'])) {
+                if (!isset($element['content'])) {
                     continue;
                 }
                 $html = '';
@@ -455,7 +448,9 @@ class SlickplanController
                                 $src = $element['content']['url'];
                             }
                             if ($src and is_string($src)) {
-                                $html .= '<img src="' . htmlspecialchars($src) . '" alt="' . htmlspecialchars($attrs['alt']) . '" title="' . htmlspecialchars($attrs['title']) . '" />';
+                                $html .= '<img src="' . htmlspecialchars($src)
+                                    . '" alt="' . htmlspecialchars($attrs['alt'])
+                                    . '" title="' . htmlspecialchars($attrs['title']) . '" />';
                             }
                         }
                         break;
@@ -475,13 +470,14 @@ class SlickplanController
                             }
                             if ($src and is_string($src)) {
                                 $name = $attrs['description'] ? $attrs['description'] : ($attrs['file_name'] ? $attrs['file_name'] : $name);
-                                $html .= '<a href="' . htmlspecialchars($src) . '" title="' . htmlspecialchars($attrs['description']) . '">' . $name . '</a>';
+                                $html .= '<a href="' . htmlspecialchars($src)
+                                    . '" title="' . htmlspecialchars($attrs['description']) . '">' . $name . '</a>';
                             }
                         }
                         break;
                     case 'table':
                         if (isset($element['content']['data'])) {
-                            if (! is_array($element['content']['data'])) {
+                            if (!is_array($element['content']['data'])) {
                                 $element['content']['data'] = @json_decode($element['content']['data'], true);
                             }
                             if (is_array($element['content']['data'])) {
@@ -527,13 +523,14 @@ class SlickplanController
     /**
      * Reformat title.
      *
-     * @param
-     *            $data
+     * @param $data
      * @return string
      */
     protected function _getFormattedTitle(array $data)
     {
-        $title = (isset($data['contents']['page_title']) and $data['contents']['page_title']) ? $data['contents']['page_title'] : (isset($data['text']) ? $data['text'] : '');
+        $title = (isset($data['contents']['page_title']) and $data['contents']['page_title'])
+            ? $data['contents']['page_title']
+            : (isset($data['text']) ? $data['text'] : '');
         if ($this->options['titles'] === 'ucfirst') {
             if (function_exists('mb_strtolower')) {
                 $title = mb_strtolower($title);
@@ -554,7 +551,7 @@ class SlickplanController
     /**
      * Parse single node XML element.
      *
-     * @param \DOMElement $node            
+     * @param \DOMElement $node
      * @return array|string
      */
     protected function _parseSlickplanXmlNode($node)
@@ -568,7 +565,7 @@ class SlickplanController
                     $child_node = $node->childNodes->item($i);
                     $value = $this->_parseSlickplanXmlNode($child_node);
                     if (isset($child_node->tagName)) {
-                        if (! isset($output[$child_node->tagName])) {
+                        if (!isset($output[$child_node->tagName])) {
                             $output[$child_node->tagName] = array();
                         }
                         $output[$child_node->tagName][] = $value;
@@ -576,7 +573,7 @@ class SlickplanController
                         $output = $value;
                     }
                 }
-                
+
                 if (is_array($output)) {
                     foreach ($output as $tag => $value) {
                         if (is_array($value) and count($value) === 1) {
@@ -587,13 +584,13 @@ class SlickplanController
                         $output = '';
                     }
                 }
-                
+
                 if ($node->attributes->length) {
                     $attributes = array();
                     foreach ($node->attributes as $attr_name => $attr_node) {
                         $attributes[$attr_name] = (string) $attr_node->value;
                     }
-                    if (! is_array($output)) {
+                    if (!is_array($output)) {
                         $output = array(
                             '@value' => $output
                         );
@@ -609,19 +606,28 @@ class SlickplanController
     /**
      * Check if the array is from a correct Slickplan XML file.
      *
-     * @param array $array            
-     * @param bool $parsed            
+     * @param array $array
+     * @param bool $parsed
      * @return bool
      */
     protected function _isCorrectSlickplanXmlFile($array, $parsed = false)
     {
-        $first_test = ($array and is_array($array) and isset($array['title'], $array['version'], $array['link']) and is_string($array['link']) and strstr($array['link'], 'slickplan.'));
+        $first_test = (
+            $array
+            and is_array($array)
+            and isset($array['title'], $array['version'], $array['link'])
+            and is_string($array['link'])
+            and strstr($array['link'], '.slickplan')
+        );
         if ($first_test) {
             if ($parsed) {
                 if (isset($array['sitemap']) and is_array($array['sitemap'])) {
                     return true;
                 }
-            } elseif (isset($array['section']['options']['id'], $array['section']['cells']) or isset($array['section'][0]['options']['id'], $array['section'][0]['cells'])) {
+            } elseif (
+                isset($array['section']['options'], $array['section']['cells'])
+                or isset($array['section'][0]['options'], $array['section'][0]['cells'])
+            ) {
                 return true;
             }
         }
@@ -631,7 +637,7 @@ class SlickplanController
     /**
      * Get multidimensional array, put all child pages as nested array of the parent page.
      *
-     * @param array $array            
+     * @param array $array
      * @return array
      */
     protected function _getMultidimensionalArrayHelper(array $array)
@@ -695,9 +701,17 @@ class SlickplanController
         $multi_array = array();
         if (isset($array['section'][$main_section_key]['cells']['cell'])) {
             foreach ($array['section'][$main_section_key]['cells']['cell'] as $cell) {
-                if (isset($cell['@attributes']['id']) and ($cell['level'] === 'home' or $cell['level'] === 'util' or $cell['level'] === 'foot' or $cell['level'] === '1' or $cell['level'] === 1)) {
+                if (
+                    isset($cell['@attributes']['id'])
+                    and (
+                        $cell['level'] === 'home'
+                        or $cell['level'] === 'util'
+                        or $cell['level'] === 'foot'
+                        or strval($cell['level']) === '1'
+                    )
+                ) {
                     $level = $cell['level'];
-                    if (! isset($multi_array[$level]) or ! is_array($multi_array[$level])) {
+                    if (!isset($multi_array[$level]) or !is_array($multi_array[$level])) {
                         $multi_array[$level] = array();
                     }
                     $childs = $this->_getMultidimensionalArray($cells, $cell['@attributes']['id']);
@@ -719,9 +733,8 @@ class SlickplanController
     /**
      * Put all child pages as nested array of the parent page.
      *
-     * @param array $array            
-     * @param
-     *            $parent
+     * @param array $array
+     * @param $parent
      * @return array
      */
     protected function _getMultidimensionalArray(array $array, $parent)
@@ -746,8 +759,8 @@ class SlickplanController
     /**
      * Sort cells.
      *
-     * @param array $a            
-     * @param array $b            
+     * @param array $a
+     * @param array $b
      * @return int
      */
     protected function _sortPages(array &$a, array &$b)

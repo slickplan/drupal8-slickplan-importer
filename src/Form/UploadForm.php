@@ -5,17 +5,24 @@ namespace Drupal\slickplan\Form;
 use Drupal;
 use Exception;
 use Drupal\file\Entity\File;
-use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\slickplan\Controller\SlickplanController;
 
 class UploadForm extends FormBase
 {
+    /**
+     * @return string
+     */
     public function getFormId()
     {
         return 'upload_file_forms';
     }
 
+    /**
+     * @param array $form
+     * @param FormStateInterface $form_state
+     * @return array
+     */
     public function buildForm(array $form, FormStateInterface $form_state)
     {
         $file_validator = array(
@@ -47,6 +54,11 @@ class UploadForm extends FormBase
         return $form;
     }
 
+    /**
+     * @param array $form
+     * @param FormStateInterface $form_state
+     * @return bool
+     */
     public function submitForm(array &$form, FormStateInterface $form_state)
     {
         $xml = $form_state->getValue('slickplan');

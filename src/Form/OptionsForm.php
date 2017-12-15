@@ -3,26 +3,31 @@
 namespace Drupal\slickplan\Form;
 
 use Drupal;
-use Drupal\node\Entity\NodeType;
 use Drupal\user\Entity\User;
-use Drupal\Core\Form\FormBase;
+use Drupal\node\Entity\NodeType;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\slickplan\Controller\SlickplanController;
-use Drupal\slickplan\Controller\SlickplanToolController;
 
 class OptionsForm extends FormBase
 {
+    /**
+     * @return string
+     */
     public function getFormId()
     {
         return 'options_forms';
     }
 
+    /**
+     * @param array $form
+     * @param FormStateInterface $form_state
+     * @return array
+     */
     public function buildForm(array $form, FormStateInterface $form_state)
     {
         $xml = Drupal::state()->get('slickplan_importer');
 
-        $slickplanToolController = new SlickplanToolController();
-        $slickplanToolController->checkRequiredData($xml, 'options');
+        $this->_checkRequiredData($xml, 'options');
 
         $title = (isset($xml['settings']['title']) and $xml['settings']['title'])
             ? $xml['settings']['title']
@@ -37,14 +42,16 @@ class OptionsForm extends FormBase
             if ($title) {
                 $form['slickplan_importer_website_settings']['slickplan_importer_site_title'] = array(
                     '#type' => 'checkbox',
-                    '#title' => 'Set website title to „' . $title . '” ' . '<div class="description">(It will change the Site Name in System Configuration)</div>'
+                    '#title' => 'Set website title to „' . $title . '” '
+                        . '<div class="description">(It will update the Site Name option in System Configuration)</div>'
                 );
             }
 
             if (isset($xml['settings']['tagline']) and $xml['settings']['tagline']) {
                 $form['slickplan_importer_website_settings']['slickplan_importer_slogan'] = array(
                     '#type' => 'checkbox',
-                    '#title' => 'Set website slogan to „' . $xml['settings']['tagline'] . '”' . '<div class="description">(It will change the Slogan in System Configuration)</div>'
+                    '#title' => 'Set website slogan to „' . $xml['settings']['tagline'] . '”'
+                        . '<div class="description">(It will change the Slogan in System Configuration)</div>'
                 );
             }
         }
@@ -59,8 +66,8 @@ class OptionsForm extends FormBase
             '#default_value' => 'no',
             '#options' => array(
                 'no' => 'No Change',
-                'ucfirst' => 'Make just the first character uppercase ' . '<div class="description">(This is an example page title)</div>',
-                'ucwords' => 'Uppercase the first character of each word ' . '<div class="description">(This Is An Example Page Title)</div>'
+                'ucfirst' => 'Make just the first character uppercase <div class="description">(This is an example page title)</div>',
+                'ucwords' => 'Uppercase the first character of each word <div class="description">(This Is An Example Page Title)</div>'
             )
         );
 
@@ -96,15 +103,7 @@ class OptionsForm extends FormBase
             }
             $filesize_total = array_sum($filesize_total);
             $size = array(
-                'B',
-                'kB',
-                'MB',
-                'GB',
-                'TB',
-                'PB',
-                'EB',
-                'ZB',
-                'YB'
+                'B', 'kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'
             );
             $factor = (int)floor((strlen($filesize_total) - 1) / 3);
             $filesize_total = round($filesize_total / pow(1024, $factor)) . $size[$factor];
@@ -112,7 +111,8 @@ class OptionsForm extends FormBase
         if ($no_of_files) {
             $form['slickplan_importer_pages_settings']['slickplan_importer_content_files'] = array(
                 '#type' => 'checkbox',
-                '#title' => 'Import files to website’s library' . '<div class="description">(Downloading files may take a while, approx total size: ' . $filesize_total . ')</div>',
+                '#title' => 'Import files to website’s library'
+                    . '<div class="description">(Downloading files may take a while, approx total size: ' . $filesize_total . ')</div>',
                 '#states' => array(
                     'visible' => array(
                         '#edit-slickplan-importer-content input[type="radio"]' => array(
@@ -189,12 +189,15 @@ class OptionsForm extends FormBase
         return $form;
     }
 
+    /**
+     * @param array $form
+     * @param FormStateInterface $form_state
+     */
     public function submitForm(array &$form, FormStateInterface $form_state)
     {
         $xml = Drupal::state()->get('slickplan_importer');
 
-        $slickplanToolController = new SlickplanToolController();
-        $slickplanToolController->checkRequiredData($xml, 'options');
+        $this->_checkRequiredData($xml, 'options');
 
         $form_data = $form_state->getValues();
 
@@ -217,7 +220,11 @@ class OptionsForm extends FormBase
         $xml['import_options'] = array(
             'titles' => isset($form_data['slickplan_importer_page_title']) ? $form_data['slickplan_importer_page_title'] : '',
             'content' => isset($form_data['slickplan_importer_content']) ? $form_data['slickplan_importer_content'] : '',
-            'content_files' => (isset($form_data['slickplan_importer_content'], $form_data['slickplan_importer_content_files']) and $form_data['slickplan_importer_content'] === 'contents' and $form_data['slickplan_importer_content_files']),
+            'content_files' => (
+                isset($form_data['slickplan_importer_content'], $form_data['slickplan_importer_content_files'])
+                and $form_data['slickplan_importer_content'] === 'contents'
+                and $form_data['slickplan_importer_content_files']
+            ),
             'post_type' => isset($form_data['slickplan_importer_post_type']) ? $form_data['slickplan_importer_post_type'] : '',
             'users' => array(),
             'internal_links' => array(),
